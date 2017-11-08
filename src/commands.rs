@@ -679,6 +679,26 @@ pub enum LoadCommand {
         /// command in bytes
         payload: Vec<u8>,
     },
+
+    ////////////////////////////////////////////////////////////
+    // We can't give the concrete members of Thread(see EXTERNAL_HEADERS/mach-o/loader.h)
+    Thread {
+        cmd: u32,
+        payload: Vec<u8>,
+    },
+
+    EncryptionInfo {
+        cryptoff: u32,
+        cryptsize: u32,
+        cryptid: u32,
+    },
+
+    EncryptionInfo64 {
+        cryptoff: u32,
+        cryptsize: u32,
+        cryptid: u32,
+        pad: u32,
+    },
 }
 
 /// Read a fixed size string
@@ -852,6 +872,43 @@ impl LoadCommand {
                 }
             }
             LC_SOURCE_VERSION => LoadCommand::SourceVersion(SourceVersionTag(try!(buf.read_u64::<O>()))),
+            LC_ENCRYPTION_INFO => {
+                LoadCommand::EncryptionInfo {
+                    cryptoff: try!(buf.read_u32::<O>()),
+                    cryptsize: try!(buf.read_u32::<O>()),
+                    cryptid: try!(buf.read_u32::<O>()),
+                }
+            }
+            LC_ENCRYPTION_INFO_64 => {
+                LoadCommand::EncryptionInfo64 {
+                    cryptoff: try!(buf.read_u32::<O>()),
+                    cryptsize: try!(buf.read_u32::<O>()),
+                    cryptid: try!(buf.read_u32::<O>()),
+                    pad: try!(buf.read_u32::<O>()),
+                }
+            }
+            LC_THREAD |
+            LC_UNIXTHREAD => {
+                // This is the same process with '_'(otherwise)
+                // But creates Command::Thread just in case.
+
+                let mut payload = Vec::new();
+
+                payload.resize(cmdsize as usize - 8, 0);
+
+                debug!("load {} command with {} bytes payload",
+                       LoadCommand::cmd_name(cmd),
+                       payload.len());
+
+                try!(buf.read_exact(payload.as_mut()));
+
+                let cmd = LoadCommand::Thread {
+                    cmd: cmd,
+                    payload: payload,
+                };
+
+                cmd
+            }
             _ => {
                 let mut payload = Vec::new();
 
@@ -963,6 +1020,9 @@ impl LoadCommand {
             &LoadCommand::DyldInfo { .. } => LC_DYLD_INFO_ONLY,
             &LoadCommand::EntryPoint { .. } => LC_MAIN,
             &LoadCommand::SourceVersion(_) => LC_SOURCE_VERSION,
+            &LoadCommand::EncryptionInfo { .. } => LC_ENCRYPTION_INFO,
+            &LoadCommand::EncryptionInfo64 { .. } => LC_ENCRYPTION_INFO_64,
+            &LoadCommand::Thread { cmd, .. } => cmd,
             &LoadCommand::Command { cmd, .. } => cmd,
         }
     }
