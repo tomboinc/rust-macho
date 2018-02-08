@@ -16,7 +16,7 @@ use commands::{LcString, LoadCommand, ReadStringExt};
 ///
 pub trait MachArch {
     /// parse mach header
-    fn parse_mach_header<T: BufRead, O: ByteOrder>(buf: &mut T) -> Result<MachHeader>;
+    fn parse_mach_header<T: BufRead, O: ByteOrder>(buf: &mut T, offset: u64) -> Result<MachHeader>;
 }
 
 /// The 32-bit mach header
@@ -38,7 +38,8 @@ type gid_t = libc::gid_t;
 type mode_t = libc::mode_t;
 
 impl MachArch for Arch32 {
-    fn parse_mach_header<T: BufRead, O: ByteOrder>(buf: &mut T) -> Result<MachHeader> {
+    fn parse_mach_header<T: BufRead, O: ByteOrder>(buf: &mut T, offset: u64) -> Result<MachHeader> {
+        let size = 28;
         let header = MachHeader {
             magic: try!(buf.read_u32::<O>()),
             cputype: try!(buf.read_i32::<O>()),
@@ -47,6 +48,8 @@ impl MachArch for Arch32 {
             ncmds: try!(buf.read_u32::<O>()),
             sizeofcmds: try!(buf.read_u32::<O>()),
             flags: try!(buf.read_u32::<O>()),
+            offset: offset,
+            size: size,
         };
 
         Ok(header)
@@ -54,7 +57,8 @@ impl MachArch for Arch32 {
 }
 
 impl MachArch for Arch64 {
-    fn parse_mach_header<T: BufRead, O: ByteOrder>(buf: &mut T) -> Result<MachHeader> {
+    fn parse_mach_header<T: BufRead, O: ByteOrder>(buf: &mut T, offset: u64) -> Result<MachHeader> {
+        let size = 32;
         let header = MachHeader {
             magic: try!(buf.read_u32::<O>()),
             cputype: try!(buf.read_i32::<O>()),
@@ -63,6 +67,8 @@ impl MachArch for Arch64 {
             ncmds: try!(buf.read_u32::<O>()),
             sizeofcmds: try!(buf.read_u32::<O>()),
             flags: try!(buf.read_u32::<O>()),
+            offset: offset,
+            size: size,
         };
 
         buf.consume(4);
@@ -89,6 +95,10 @@ pub struct MachHeader {
     pub sizeofcmds: u32,
     /// flags
     pub flags: u32,
+    /// header offset in file for a3o
+    pub offset: u64,
+    /// header size for a3o
+    pub size: u8,
 }
 
 impl MachHeader {
@@ -779,7 +789,8 @@ impl OFile {
     fn parse_mach_file<A: MachArch, O: ByteOrder, T: AsRef<[u8]>>(buf: &mut Cursor<T>) -> Result<OFile> {
         debug!("0x{:08x}\tparsing macho-o file header", buf.position());
 
-        let header = try!(A::parse_mach_header::<Cursor<T>, O>(buf));
+        let position = buf.position();
+        let header = try!(A::parse_mach_header::<Cursor<T>, O>(buf, position));
 
         debug!("parsed mach-o file header: {:?}", header);
 
@@ -1038,7 +1049,8 @@ pub mod tests {
 
         let mut cur = Cursor::new(buf.as_slice());
 
-        let header = Arch64::parse_mach_header::<Cursor<&[u8]>, LittleEndian>(&mut cur).unwrap();
+        let position = cur.position();
+        let header = Arch64::parse_mach_header::<Cursor<&[u8]>, LittleEndian>(&mut cur, position).unwrap();
 
         assert_eq!(header.magic, MH_MAGIC_64);
         assert_eq!(header.cputype, CPU_TYPE_X86_64);
